@@ -67,6 +67,8 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: wheels-*
+          merge-multiple: true
           path: dist
 
       - name: Publish to PyPI via Trusted Publisher
