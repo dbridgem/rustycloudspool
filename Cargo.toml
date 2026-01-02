@@ -1,0 +1,28 @@
+[package]
+name = "rustycloudspool"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "rustycloudspool"
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+python-api = ["pyo3"]
+pyo3 = ["dep:pyo3"]
+
+[dependencies]
+tokio = { version = "1.42", features = ["rt-multi-thread", "macros", "time"] }
+aws-config = "1.8.12"
+aws-sdk-s3 = "1.119.0"
+redis = { version = "1.0.2", features = ["tokio-comp"] }
+pyo3 = { version = "0.27.2", features = ["extension-module"], optional = true }
+async-trait = "0.1"
+futures = "0.3"
+deadpool-redis = "0.22.0"
+tokio-retry = "0.3.0"
+
+[dev-dependencies]
+tokio = "1.42"
+dotenv = "0.15"
