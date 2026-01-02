@@ -42,10 +42,15 @@ jobs:
 
       - name: Build Linux ARM64 wheel
         if: matrix.os == 'ubuntu-latest'
+        env:
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
           rustup target add aarch64-unknown-linux-gnu
           maturin build --release --features python-api --target aarch64-unknown-linux-gnu -i python${{ matrix.python-version }}
-
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
