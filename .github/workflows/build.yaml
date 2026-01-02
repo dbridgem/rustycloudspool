@@ -31,20 +31,20 @@ jobs:
         run: pip install maturin
 
       - name: Build native wheel (x86_64)
-        run: maturin build --release --features python-api -i python
+        run: maturin build --release --features python-api -i python${{ matrix.python-version }}
 
       - name: Build macOS universal2 wheel
         if: matrix.os == 'macos-latest'
         run: |
           rustup target add aarch64-apple-darwin
           rustup target add x86_64-apple-darwin
-          maturin build --release --features python-api --target universal2-apple-darwin -i python
+          maturin build --release --features python-api --target universal2-apple-darwin -i python${{ matrix.python-version }}
 
       - name: Build Linux ARM64 wheel
         if: matrix.os == 'ubuntu-latest'
         run: |
           rustup target add aarch64-unknown-linux-gnu
-          maturin build --release --features python-api --target aarch64-unknown-linux-gnu -i python
+          maturin build --release --features python-api --target aarch64-unknown-linux-gnu -i python${{ matrix.python-version }}
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
@@ -56,7 +56,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      id-token: write  
+      id-token: write
       contents: read
     environment: pypitest
     steps:
