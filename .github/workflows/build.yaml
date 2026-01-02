@@ -6,8 +6,7 @@ on:
       - "v*.*.*"
 
 jobs:
-  build-and-publish:
-    name: Build and Publish to PyPI
+  build:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -31,11 +30,9 @@ jobs:
       - name: Install maturin
         run: pip install maturin
 
-      # Native build (x86_64 for each runner)
-      - name: Build native wheel
+      - name: Build native wheel (x86_64)
         run: maturin build --release --features python-api
 
-      # macOS universal2 (x86_64 + ARM64)
       - name: Build macOS universal2 wheel
         if: matrix.os == 'macos-latest'
         run: |
@@ -43,15 +40,31 @@ jobs:
           rustup target add x86_64-apple-darwin
           maturin build --release --features python-api --target universal2-apple-darwin
 
-      # Linux ARM64 cross-compile
       - name: Build Linux ARM64 wheel
         if: matrix.os == 'ubuntu-latest'
         run: |
           rustup target add aarch64-unknown-linux-gnu
           maturin build --release --features python-api --target aarch64-unknown-linux-gnu
 
-      - name: Publish to PyPI
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
-        run: |
-          pip install twine
-          twine upload target/wheels/*.whl
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.python-version }}
+          path: target/wheels/*.whl
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write    # required for PyPI trusted publishing
+      contents: read
+    environment: pypi   # use the environment name you registered in PyPI
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Publish to PyPI via Trusted Publisher
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
