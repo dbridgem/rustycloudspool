@@ -63,7 +63,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    environment: pypitest
+    environment: pypi
     steps:
       - uses: actions/download-artifact@v4
         with:
