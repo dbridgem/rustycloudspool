@@ -1,6 +1,7 @@
-use crate::handlers::{BaseClientHandler, S3ClientHandler};
+use crate::handlers::{AzureBlobClientHandler, BaseClientHandler, S3ClientHandler};
+use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use tokio::runtime::Runtime;
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
@@ -14,30 +15,40 @@ pub struct RustyCloudSpoolCore {
     pub bucket: String,
     pub redis_url: String,
     pub ttl: u64,
-    pub client_handler: Box<dyn BaseClientHandler>,
+    pub client_handler: Arc<dyn BaseClientHandler>,
 }
 
 impl RustyCloudSpoolCore {
     pub fn new(
         provider: String,
-        region: String,
         bucket: String,
+        azure_connection_string: String,
+        region: String,
         redis_url: String,
         ttl: u64,
     ) -> Self {
-        let client_handler: Box<dyn BaseClientHandler> = match provider.as_str() {
+        let client_handler: Arc<dyn BaseClientHandler> = match provider.as_str() {
             "aws" => {
                 let runtime = get_runtime();
                 let handler = runtime.block_on(async {
                     S3ClientHandler::new(bucket.clone(), region.clone(), &ttl).await
                 });
-                Box::new(handler)
+                Arc::new(handler)
             }
             "gcp" => {
                 panic!("GCP not implemented yet");
             }
             "azure" => {
-                panic!("Azure not implemented yet");
+                let runtime = get_runtime();
+                let handler: AzureBlobClientHandler = runtime.block_on(async {
+                    AzureBlobClientHandler::new(
+                        bucket.clone(),
+                        azure_connection_string.clone(),
+                        &ttl,
+                    )
+                    .await
+                });
+                Arc::new(handler)
             }
             _ => {
                 panic!("Unsupported cloud provider");
@@ -55,16 +66,12 @@ impl RustyCloudSpoolCore {
 
     pub fn download_files(&self, keys: Vec<String>) -> Result<HashMap<String, Vec<u8>>, String> {
         let runtime = get_runtime();
+        let handler = Arc::clone(&self.client_handler);
         runtime.block_on(async {
             use futures::future::join_all;
-            let tasks = keys.iter().map(|key| {
-                let k = key.clone();
-                async move {
-                    match self.client_handler.download_file(&k).await {
-                        Ok(data) => Ok((k, data)),
-                        Err(e) => Err(e),
-                    }
-                }
+            let tasks = keys.into_iter().map(|key| {
+                let h = Arc::clone(&handler);
+                async move { h.download_file(&key).await.map(|data| (key, data)) }
             });
             let results = join_all(tasks).await;
             let mut map = HashMap::new();
@@ -76,18 +83,23 @@ impl RustyCloudSpoolCore {
                     Err(e) => return Err(e),
                 }
             }
+            // Remove any empty files (not found)
+            map.retain(|_, v| !v.is_empty());
             Ok(map)
         })
     }
 
     pub fn upload_files(&self, files: HashMap<String, Vec<u8>>) -> Result<(), String> {
         let runtime = get_runtime();
+        let handler = Arc::clone(&self.client_handler);
         runtime.block_on(async {
+            let mut futs = FuturesUnordered::new();
             for (key, data) in files {
-                self.client_handler
-                    .upload_file(&key, data)
-                    .await
-                    .map_err(|e| e)?;
+                let h = Arc::clone(&handler);
+                futs.push(async move { h.upload_file(&key, data).await });
+            }
+            while let Some(res) = futs.next().await {
+                res?;
             }
             Ok(())
         })

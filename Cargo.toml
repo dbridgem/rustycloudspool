@@ -13,7 +13,7 @@ python-api = ["pyo3"]
 pyo3 = ["dep:pyo3"]
 
 [dependencies]
-tokio = { version = "1.42", features = ["rt-multi-thread", "macros", "time"] }
+tokio = { version = "1.49.0", features = ["rt-multi-thread", "macros", "time"] }
 aws-config = "1.8.12"
 aws-sdk-s3 = "1.119.0"
 redis = { version = "1.0.2", features = ["tokio-comp"] }
@@ -22,6 +22,13 @@ async-trait = "0.1"
 futures = "0.3"
 deadpool-redis = "0.22.0"
 tokio-retry = "0.3.0"
+base64 = "0.22"
+hmac = "0.12"
+sha2 = "0.10"
+chrono = "0.4"
+quick-xml = { version = "0.38.4", features = ["serialize"] }
+reqwest = { version = "0.12.28", features = ["json", "rustls-tls"] }
+percent-encoding = "2.3.2"
 
 [dev-dependencies]
 tokio = "1.42"
