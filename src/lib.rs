@@ -18,16 +18,30 @@ mod python_api {
     #[pymethods]
     impl RustyCloudSpool {
         #[new]
-        #[pyo3(signature = (provider, region, bucket, redis_url, ttl))]
+        #[pyo3(signature = (
+            provider, 
+            bucket, 
+            azure_connection_string="", 
+            region="us-east-1",
+            redis_url = "", 
+            ttl=0
+        ))]
         pub fn new(
             provider: String,
-            region: String,
             bucket: String,
+            azure_connection_string: String,
+            region: String,
             redis_url: String,
             ttl: u64,
         ) -> Self {
             RustyCloudSpool {
-                inner: RustyCloudSpoolCore::new(provider, region, bucket, redis_url, ttl),
+                inner: RustyCloudSpoolCore::new(
+                    provider, 
+                    bucket, 
+                    azure_connection_string, 
+                    region, 
+                    redis_url, 
+                    ttl),
             }
         }
 

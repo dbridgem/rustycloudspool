@@ -1,4 +1,3 @@
-use aws_config::default_provider::region;
 use dotenv::dotenv;
 use rustycloudspool::core::RustyCloudSpoolCore;
 
@@ -11,8 +10,9 @@ fn test_setup() -> RustyCloudSpoolCore {
     let redis_url = std::env::var("TEST_REDIS_URL").unwrap_or("redis://localhost:6379".to_string());
     let spool = RustyCloudSpoolCore::new(
         "aws".to_string(),
-        region.clone(),
         bucket.clone(),
+        "".to_string(),
+        region.clone(),
         redis_url.clone(),
         10,
     );
@@ -21,7 +21,6 @@ fn test_setup() -> RustyCloudSpoolCore {
 
 #[test]
 fn test_list_files() {
-    dotenv().ok();
     let spool: RustyCloudSpoolCore = test_setup();
 
     let prefix: String = "".to_string();
@@ -36,19 +35,7 @@ fn test_list_files() {
 
 #[test]
 fn test_download_files() {
-    dotenv().ok();
-    let bucket = std::env::var("TEST_BUCKET")
-        .ok()
-        .expect("TEST_BUCKET must be set");
-    let region = std::env::var("TEST_REGION").unwrap_or("us-east-2".to_string());
-
-    let spool = RustyCloudSpoolCore::new(
-        "aws".to_string(),
-        region.clone(),
-        bucket.clone(),
-        "".to_string(),
-        1,
-    );
+    let spool: RustyCloudSpoolCore = test_setup();
 
     let keys: Vec<String> = vec!["demo/main.rs".to_string()];
     let files = spool.download_files(keys).unwrap();
@@ -58,19 +45,8 @@ fn test_download_files() {
 
 #[test]
 fn test_upload_files() {
-    dotenv().ok();
-    let bucket = std::env::var("TEST_BUCKET")
-        .ok()
-        .expect("TEST_BUCKET must be set");
-    let region = std::env::var("TEST_REGION").unwrap_or("us-east-2".to_string());
+    let spool: RustyCloudSpoolCore = test_setup();
 
-    let spool = RustyCloudSpoolCore::new(
-        "aws".to_string(),
-        region.clone(),
-        bucket.clone(),
-        "".to_string(),
-        60,
-    );
     let mut files: std::collections::HashMap<String, Vec<u8>> = std::collections::HashMap::new();
     files.insert(
         "demo/test_upload.txt".to_string(),
@@ -81,18 +57,7 @@ fn test_upload_files() {
 
 #[test]
 fn test_downloading_cached_file() {
-    let bucket = std::env::var("TEST_BUCKET")
-        .ok()
-        .expect("TEST_BUCKET must be set");
-    let region = std::env::var("TEST_REGION").unwrap_or("us-east-2".to_string());
-
-    let spool = RustyCloudSpoolCore::new(
-        "aws".to_string(),
-        region.clone(),
-        bucket.clone(),
-        "redis://localhost:6379".to_string(),
-        10,
-    );
+    let spool: RustyCloudSpoolCore = test_setup();
     let keys: Vec<String> = vec!["demo/main.rs".to_string()];
     // First download to cache it
     let files = spool.download_files(keys.clone()).unwrap();
