@@ -21,9 +21,9 @@ mod python_api {
         #[pyo3(signature = (
             provider, 
             bucket, 
-            azure_connection_string="", 
-            region="us-east-1",
-            redis_url = "", 
+            azure_connection_string="".to_string(), 
+            region="us-east-1".to_string(),
+            redis_url = "".to_string(), 
             ttl=0
         ))]
         pub fn new(
