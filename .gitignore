@@ -25,3 +25,6 @@ target
 
 #env files
 .env
+
+#Other extension files
+.VSCodeCounter/
