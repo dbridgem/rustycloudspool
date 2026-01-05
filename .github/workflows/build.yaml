@@ -30,6 +30,30 @@ jobs:
       - name: Install maturin
         run: pip install maturin
 
+      - name: Install OpenSSL (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+
+      - name: Install OpenSSL (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install openssl@3
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig" >> $GITHUB_ENV
+
+      - name: Install OpenSSL (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          choco install openssl --no-progress --confirm
+          $prefix = "C:\\Program Files\\OpenSSL-Win64"
+          echo "OPENSSL_DIR=$prefix" >> $env:GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=$prefix\\lib" >> $env:GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=$prefix\\include" >> $env:GITHUB_ENV
+          echo "$prefix\\bin" >> $env:GITHUB_PATH
+
       - name: Build native wheel (x86_64)
         run: maturin build --release --features python-api -i python${{ matrix.python-version }}
 
@@ -46,9 +70,11 @@ jobs:
           CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
           AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          PKG_CONFIG_ALLOW_CROSS: 1
+          PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+          sudo apt-get install -y gcc-aarch64-linux-gnu pkg-config libssl-dev:arm64
           rustup target add aarch64-unknown-linux-gnu
           maturin build --release --features python-api --target aarch64-unknown-linux-gnu -i python${{ matrix.python-version }}
       - name: Upload wheels
