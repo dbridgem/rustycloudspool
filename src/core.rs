@@ -31,7 +31,8 @@ impl RustyCloudSpoolCore {
             "aws" => {
                 let runtime = get_runtime();
                 let handler = runtime.block_on(async {
-                    S3ClientHandler::new(bucket.clone(), region.clone(), &ttl).await
+                    S3ClientHandler::new(bucket.clone(), region.clone(), redis_url.clone(), &ttl)
+                        .await
                 });
                 Arc::new(handler)
             }
@@ -44,6 +45,7 @@ impl RustyCloudSpoolCore {
                     AzureBlobClientHandler::new(
                         bucket.clone(),
                         azure_connection_string.clone(),
+                        redis_url.clone(),
                         &ttl,
                     )
                     .await
