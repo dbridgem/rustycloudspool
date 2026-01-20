@@ -56,8 +56,20 @@ jobs:
           PKG_CONFIG_ALLOW_CROSS: 1
         run: |
           sudo dpkg --add-architecture arm64
-          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
-          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
+          
+          # Handle DEB822 format (.sources files) - add Architectures: amd64
+          for f in /etc/apt/sources.list.d/*.sources; do
+            if [ -f "$f" ]; then
+              sudo sed -i '/^Types:/a Architectures: amd64' "$f"
+            fi
+          done
+          
+          # Handle traditional format (sources.list) - restrict to amd64
+          if [ -f /etc/apt/sources.list ]; then
+            sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
+          fi
+          
+          # Add arm64 repos pointing to ports.ubuntu.com
           sudo tee /etc/apt/sources.list.d/arm64.list >/dev/null <<'EOF'
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main universe multiverse restricted
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-updates main universe multiverse restricted
