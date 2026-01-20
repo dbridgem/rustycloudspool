@@ -46,6 +46,52 @@ fn encode_path_segments(path: &str) -> String {
         .join("/")
 }
 
+fn infer_content_type(key: &str) -> Option<&'static str> {
+    let extension = key.rsplit('.').next()?;
+    match extension.to_lowercase().as_str() {
+        // Text
+        "txt" => Some("text/plain"),
+        "html" | "htm" => Some("text/html"),
+        "css" => Some("text/css"),
+        "js" => Some("application/javascript"),
+        "json" => Some("application/json"),
+        "xml" => Some("application/xml"),
+        "csv" => Some("text/csv"),
+        // Images
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "png" => Some("image/png"),
+        "gif" => Some("image/gif"),
+        "svg" => Some("image/svg+xml"),
+        "webp" => Some("image/webp"),
+        "ico" => Some("image/x-icon"),
+        // Documents
+        "pdf" => Some("application/pdf"),
+        "doc" => Some("application/msword"),
+        "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        "xls" => Some("application/vnd.ms-excel"),
+        "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        "ppt" => Some("application/vnd.ms-powerpoint"),
+        "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+        // Archives
+        "zip" => Some("application/zip"),
+        "gz" | "gzip" => Some("application/gzip"),
+        "tar" => Some("application/x-tar"),
+        "7z" => Some("application/x-7z-compressed"),
+        "rar" => Some("application/vnd.rar"),
+        // Media
+        "mp3" => Some("audio/mpeg"),
+        "mp4" => Some("video/mp4"),
+        "mpeg" => Some("video/mpeg"),
+        "avi" => Some("video/x-msvideo"),
+        "wav" => Some("audio/wav"),
+        "webm" => Some("video/webm"),
+        // Other
+        "wasm" => Some("application/wasm"),
+        "bin" => Some("application/octet-stream"),
+        _ => None,
+    }
+}
+
 #[async_trait]
 pub trait BaseClientHandler: Send + Sync {
     async fn download_file(&self, key: &str) -> Result<Vec<u8>, String>;
@@ -56,7 +102,7 @@ pub trait BaseClientHandler: Send + Sync {
 pub struct S3ClientHandler {
     bucket: String,
     client: aws_sdk_s3::Client,
-    redis_pool: RedisPool,
+    redis_pool: Option<RedisPool>,
     ttl: u64,
 }
 
@@ -65,12 +111,12 @@ pub struct AzureBlobClientHandler {
     account_name: String,
     account_key: Vec<u8>,
     client: HttpClient,
-    redis_pool: RedisPool,
+    redis_pool: Option<RedisPool>,
     ttl: u64,
 }
 
 impl S3ClientHandler {
-    pub async fn new(bucket: String, region: String, ttl: &u64) -> Self {
+    pub async fn new(bucket: String, region: String, redis_url: String, ttl: &u64) -> Self {
         let behavior_version = BehaviorVersion::latest();
         let region_provider = RegionProviderChain::first_try(Some(Region::new(region.clone())));
         let config = aws_config::defaults(behavior_version)
@@ -79,10 +125,14 @@ impl S3ClientHandler {
             .await;
         let client = aws_sdk_s3::Client::new(&config);
 
-        let mut redis_cfg = RedisConfig::from_url("redis://127.0.0.1:6379");
-        // tune pool size for your workload (start with 50-200 depending on hardware)
-        redis_cfg.pool.get_or_insert(Default::default()).max_size = 100;
-        let redis_pool = redis_cfg.create_pool(Some(RedisRuntime::Tokio1)).unwrap();
+        let redis_pool = if !redis_url.is_empty() && *ttl > 0 {
+            let mut redis_cfg = RedisConfig::from_url(redis_url);
+            // tune pool size for your workload (start with 50-200 depending on hardware)
+            redis_cfg.pool.get_or_insert(Default::default()).max_size = 100;
+            Some(redis_cfg.create_pool(Some(RedisRuntime::Tokio1)).unwrap())
+        } else {
+            None
+        };
 
         S3ClientHandler {
             bucket,
@@ -94,7 +144,12 @@ impl S3ClientHandler {
 }
 
 impl AzureBlobClientHandler {
-    pub async fn new(bucket: String, connection_string: String, ttl: &u64) -> Self {
+    pub async fn new(
+        bucket: String,
+        connection_string: String,
+        redis_url: String,
+        ttl: &u64,
+    ) -> Self {
         // Parse connection string manually
         let parts: HashMap<String, String> = connection_string
             .split(';')
@@ -125,9 +180,13 @@ impl AzureBlobClientHandler {
             .build()
             .expect("failed to build reqwest client");
 
-        let mut redis_cfg = RedisConfig::from_url("redis://127.0.0.1:6379");
-        redis_cfg.pool.get_or_insert(Default::default()).max_size = 100;
-        let redis_pool = redis_cfg.create_pool(Some(RedisRuntime::Tokio1)).unwrap();
+        let redis_pool = if !redis_url.is_empty() && *ttl > 0 {
+            let mut redis_cfg = RedisConfig::from_url(redis_url);
+            redis_cfg.pool.get_or_insert(Default::default()).max_size = 100;
+            Some(redis_cfg.create_pool(Some(RedisRuntime::Tokio1)).unwrap())
+        } else {
+            None
+        };
 
         AzureBlobClientHandler {
             bucket,
@@ -178,17 +237,19 @@ impl AzureBlobClientHandler {
 #[async_trait]
 impl BaseClientHandler for S3ClientHandler {
     async fn download_file(&self, key: &str) -> Result<Vec<u8>, String> {
-        // Try to get from Redis cache first
-        let mut conn = self
-            .redis_pool
-            .get()
-            .await
-            .map_err(|e| format!("Failed to get Redis connection: {}", e))?;
-        let cached: Option<Vec<u8>> = deadpool_redis::redis::AsyncCommands::get(&mut *conn, key)
-            .await
-            .map_err(|e| format!("Failed to read from Redis: {}", e))?;
-        if let Some(data) = cached {
-            return Ok(data);
+        // Try to get from Redis cache first if pool exists
+        if let Some(pool) = &self.redis_pool {
+            let mut conn = pool
+                .get()
+                .await
+                .map_err(|e| format!("Failed to get Redis connection: {}", e))?;
+            let cached: Option<Vec<u8>> =
+                deadpool_redis::redis::AsyncCommands::get(&mut *conn, key)
+                    .await
+                    .map_err(|e| format!("Failed to read from Redis: {}", e))?;
+            if let Some(data) = cached {
+                return Ok(data);
+            }
         }
 
         // If not cached, fetch from S3
@@ -236,19 +297,28 @@ impl BaseClientHandler for S3ClientHandler {
             .map(|data| data.into_bytes().to_vec())
             .map_err(|e| format!("Failed to read S3 object body: {}", e))?;
 
-        cache_in_redis(&mut conn, key, &data, self.ttl).await?;
+        if let Some(pool) = &self.redis_pool {
+            let mut conn = pool
+                .get()
+                .await
+                .map_err(|e| format!("Failed to get Redis connection: {}", e))?;
+            cache_in_redis(&mut conn, key, &data, self.ttl).await?;
+        }
 
         Ok(data.to_vec())
     }
 
     async fn upload_file(&self, key: &str, data: Vec<u8>) -> Result<(), String> {
-        let mut conn = self
-            .redis_pool
-            .get()
-            .await
-            .map_err(|e| format!("Failed to get Redis connection: {}", e))?;
+        if let Some(pool) = &self.redis_pool {
+            let mut conn = pool
+                .get()
+                .await
+                .map_err(|e| format!("Failed to get Redis connection: {}", e))?;
+            cache_in_redis(&mut conn, key, &data, self.ttl).await?;
+        }
 
-        cache_in_redis(&mut conn, key, &data, self.ttl).await?;
+        // Infer content type from file extension
+        let content_type = infer_content_type(key);
 
         // retry with exponential backoff (max 3 attempts, 100ms-5s delay)
         let max_retries = 3u32;
@@ -256,15 +326,18 @@ impl BaseClientHandler for S3ClientHandler {
         let mut attempt: u32 = 0;
         let data_clone = data.clone();
         loop {
-            match self
+            let mut put_request = self
                 .client
                 .put_object()
                 .bucket(&self.bucket)
                 .key(key)
-                .body(aws_sdk_s3::primitives::ByteStream::from(data_clone.clone()))
-                .send()
-                .await
-            {
+                .body(aws_sdk_s3::primitives::ByteStream::from(data_clone.clone()));
+
+            if let Some(ct) = content_type {
+                put_request = put_request.content_type(ct);
+            }
+
+            match put_request.send().await {
                 Ok(_) => break,
                 Err(e) => {
                     attempt += 1;
@@ -315,17 +388,19 @@ impl BaseClientHandler for S3ClientHandler {
 #[async_trait]
 impl BaseClientHandler for AzureBlobClientHandler {
     async fn download_file(&self, key: &str) -> Result<Vec<u8>, String> {
-        // Try to get from Redis cache first
-        let mut conn = self
-            .redis_pool
-            .get()
-            .await
-            .map_err(|e| format!("Failed to get Redis connection: {}", e))?;
-        let cached: Option<Vec<u8>> = deadpool_redis::redis::AsyncCommands::get(&mut *conn, key)
-            .await
-            .map_err(|e| format!("Failed to read from Redis: {}", e))?;
-        if let Some(data) = cached {
-            return Ok(data);
+        // Try to get from Redis cache first if pool exists
+        if let Some(pool) = &self.redis_pool {
+            let mut conn = pool
+                .get()
+                .await
+                .map_err(|e| format!("Failed to get Redis connection: {}", e))?;
+            let cached: Option<Vec<u8>> =
+                deadpool_redis::redis::AsyncCommands::get(&mut *conn, key)
+                    .await
+                    .map_err(|e| format!("Failed to read from Redis: {}", e))?;
+            if let Some(data) = cached {
+                return Ok(data);
+            }
         }
 
         let now = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
@@ -372,17 +447,29 @@ impl BaseClientHandler for AzureBlobClientHandler {
         }
 
         let data = resp.bytes().await.map_err(|e| e.to_string())?.to_vec();
-        cache_in_redis(&mut conn, key, &data, self.ttl).await?;
+
+        if let Some(pool) = &self.redis_pool {
+            let mut conn = pool
+                .get()
+                .await
+                .map_err(|e| format!("Failed to get Redis connection: {}", e))?;
+            cache_in_redis(&mut conn, key, &data, self.ttl).await?;
+        }
+
         Ok(data.to_vec())
     }
 
     async fn upload_file(&self, key: &str, data: Vec<u8>) -> Result<(), String> {
-        let mut conn = self
-            .redis_pool
-            .get()
-            .await
-            .map_err(|e| format!("Failed to get Redis connection: {}", e))?;
-        cache_in_redis(&mut conn, key, &data, self.ttl).await?;
+        if let Some(pool) = &self.redis_pool {
+            let mut conn = pool
+                .get()
+                .await
+                .map_err(|e| format!("Failed to get Redis connection: {}", e))?;
+            cache_in_redis(&mut conn, key, &data, self.ttl).await?;
+        }
+
+        // Infer content type from file extension
+        let content_type = infer_content_type(key);
 
         let now = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
         let version = "2020-04-08";
@@ -414,13 +501,19 @@ impl BaseClientHandler for AzureBlobClientHandler {
             &canonicalized_resource,
         );
 
-        let resp = self
+        let mut request = self
             .client
             .put(&url)
             .header("x-ms-date", &now)
             .header("x-ms-version", version)
             .header("x-ms-blob-type", "BlockBlob")
-            .header("Authorization", auth)
+            .header("Authorization", auth);
+
+        if let Some(ct) = content_type {
+            request = request.header("Content-Type", ct);
+        }
+
+        let resp = request
             .body(reqwest::Body::from(data))
             .send()
             .await
