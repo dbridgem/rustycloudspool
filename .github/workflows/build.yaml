@@ -6,93 +6,65 @@ on:
       - "v*.*.*"
 
 jobs:
-  build:
-    runs-on: ${{ matrix.os }}
+  linux:
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        target: [x86_64, aarch64, armv7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist --features python-api --find-interpreter
+          manylinux: auto
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.target }}
+          path: dist
+
+  windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target: [x64]
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          allow-prereleases: true
-
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+      - uses: PyO3/maturin-action@v1
         with:
-          toolchain: stable
-          profile: minimal
-          override: true
-
-      - name: Install maturin
-        run: pip install maturin
-
-      - name: Build native wheel (x86_64)
-        run: |
-          if [ "$RUNNER_OS" == "Linux" ]; then
-            maturin build --release --features python-api --compatibility manylinux2014 -i python
-          else
-            maturin build --release --features python-api -i python
-          fi
-        shell: bash
-
-      - name: Build macOS universal2 wheel
-        if: matrix.os == 'macos-latest'
-        run: |
-          rustup target add aarch64-apple-darwin
-          rustup target add x86_64-apple-darwin
-          maturin build --release --features python-api --target universal2-apple-darwin -i python
-
-      - name: Build Linux ARM64 wheel
-        if: matrix.os == 'ubuntu-latest'
-        env:
-          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
-          AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-          PKG_CONFIG_ALLOW_CROSS: 1
-        run: |
-          sudo dpkg --add-architecture arm64
-          
-          # Move existing repo files out of the way
-          sudo mv /etc/apt/sources.list.d /etc/apt/sources.list.d.bak 2>/dev/null || true
-          sudo mv /etc/apt/sources.list /etc/apt/sources.list.bak 2>/dev/null || true
-          
-          # Create fresh sources directory
-          sudo mkdir -p /etc/apt/sources.list.d
-          
-          # Create amd64 repos (archive.ubuntu.com)
-          sudo tee /etc/apt/sources.list >/dev/null <<'EOF'
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble main universe multiverse restricted
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble-updates main universe multiverse restricted
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble-security main universe multiverse restricted
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble-backports main universe multiverse restricted
-          EOF
-          
-          # Create arm64 repos (ports.ubuntu.com)
-          sudo tee /etc/apt/sources.list.d/arm64.list >/dev/null <<'EOF'
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main universe multiverse restricted
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-updates main universe multiverse restricted
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-security main universe multiverse restricted
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-backports main universe multiverse restricted
-          EOF
-          
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu libssl-dev:arm64 pkg-config-aarch64-linux-gnu
-          rustup target add aarch64-unknown-linux-gnu
-          maturin build --release --features python-api --compatibility manylinux2014 --target aarch64-unknown-linux-gnu -i python
-          
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
+          target: ${{ matrix.target }}
+          args: --release --out dist --features python-api --find-interpreter
+      - uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}-${{ matrix.python-version }}
-          path: target/wheels/*.whl
+          name: wheels-windows-${{ matrix.target }}-${{ matrix.python-version }}
+          path: dist
+
+  macos:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        target: [x86_64, aarch64]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist --features python-api --find-interpreter
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.target }}-${{ matrix.python-version }}
+          path: dist
 
   publish:
-    needs: build
+    needs: [linux, windows, macos]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
