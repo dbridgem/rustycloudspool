@@ -19,6 +19,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
 
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
@@ -31,14 +32,20 @@ jobs:
         run: pip install maturin
 
       - name: Build native wheel (x86_64)
-        run: maturin build --release --features python-api -i python${{ matrix.python-version }}
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            maturin build --release --features python-api --compatibility manylinux2014 -i python
+          else
+            maturin build --release --features python-api -i python
+          fi
+        shell: bash
 
       - name: Build macOS universal2 wheel
         if: matrix.os == 'macos-latest'
         run: |
           rustup target add aarch64-apple-darwin
           rustup target add x86_64-apple-darwin
-          maturin build --release --features python-api --target universal2-apple-darwin -i python${{ matrix.python-version }}
+          maturin build --release --features python-api --target universal2-apple-darwin -i python
 
       - name: Build Linux ARM64 wheel
         if: matrix.os == 'ubuntu-latest'
@@ -49,6 +56,8 @@ jobs:
           PKG_CONFIG_ALLOW_CROSS: 1
         run: |
           sudo dpkg --add-architecture arm64
+          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
+          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
           sudo tee /etc/apt/sources.list.d/arm64.list >/dev/null <<'EOF'
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main universe multiverse restricted
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-updates main universe multiverse restricted
@@ -58,7 +67,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu libssl-dev:arm64 pkg-config-aarch64-linux-gnu
           rustup target add aarch64-unknown-linux-gnu
-          maturin build --release --features python-api --target aarch64-unknown-linux-gnu -i python
+          maturin build --release --features python-api --compatibility manylinux2014 --target aarch64-unknown-linux-gnu -i python
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
