@@ -3,20 +3,17 @@ use rustycloudspool::core::RustyCloudSpoolCore;
 
 fn test_setup() -> RustyCloudSpoolCore {
     dotenv().ok();
-    let bucket = std::env::var("TEST_BUCKET")
-        .ok()
-        .expect("TEST_BUCKET must be set");
+    let bucket = std::env::var("TEST_BUCKET").expect("TEST_BUCKET must be set");
     let region = std::env::var("TEST_REGION").unwrap_or("us-east-2".to_string());
     let redis_url = std::env::var("TEST_REDIS_URL").unwrap_or("redis://localhost:6379".to_string());
-    let spool = RustyCloudSpoolCore::new(
+    RustyCloudSpoolCore::new(
         "aws".to_string(),
         bucket.clone(),
         "".to_string(),
         region.clone(),
         redis_url.clone(),
         10,
-    );
-    return spool;
+    )
 }
 
 #[test]
@@ -25,12 +22,12 @@ fn test_list_files() {
 
     let prefix: String = "".to_string();
     let files: Vec<String> = spool.list_files(prefix).unwrap();
-    assert!(files.len() > 0);
+    assert!(!files.is_empty());
 
     let prefix = "demo/".to_string();
     let files: Vec<String> = spool.list_files(prefix).unwrap();
     println!("Files with 'demo/' prefix: {:?}", files);
-    assert!(files.len() == 2);
+    assert_eq!(files.len(), 2);
 }
 
 #[test]
@@ -40,7 +37,7 @@ fn test_download_files() {
     let keys: Vec<String> = vec!["demo/main.rs".to_string()];
     let files = spool.download_files(keys).unwrap();
     assert_eq!(files.len(), 1);
-    assert!(files.get("demo/main.rs").unwrap().len() > 0);
+    assert!(!files.get("demo/main.rs").unwrap().is_empty());
 }
 
 #[test]
@@ -62,10 +59,10 @@ fn test_downloading_cached_file() {
     // First download to cache it
     let files = spool.download_files(keys.clone()).unwrap();
     assert_eq!(files.len(), 1);
-    assert!(files.get("demo/main.rs").unwrap().len() > 0);
+    assert!(!files.get("demo/main.rs").unwrap().is_empty());
 
     // Download again to hit the cache
     let files_cached = spool.download_files(keys).unwrap();
     assert_eq!(files_cached.len(), 1);
-    assert!(files_cached.get("demo/main.rs").unwrap().len() > 0);
+    assert!(!files_cached.get("demo/main.rs").unwrap().is_empty());
 }
