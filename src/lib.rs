@@ -19,11 +19,11 @@ mod python_api {
     impl RustyCloudSpool {
         #[new]
         #[pyo3(signature = (
-            provider, 
-            bucket, 
-            azure_connection_string="".to_string(), 
+            provider,
+            bucket,
+            azure_connection_string="".to_string(),
             region="us-east-1".to_string(),
-            redis_url = "".to_string(), 
+            redis_url = "".to_string(),
             ttl=0
         ))]
         pub fn new(
@@ -36,36 +36,37 @@ mod python_api {
         ) -> Self {
             RustyCloudSpool {
                 inner: RustyCloudSpoolCore::new(
-                    provider, 
-                    bucket, 
-                    azure_connection_string, 
-                    region, 
-                    redis_url, 
-                    ttl),
+                    provider,
+                    bucket,
+                    azure_connection_string,
+                    region,
+                    redis_url,
+                    ttl,
+                ),
             }
         }
 
         pub fn download_files(&self, keys: Vec<String>) -> PyResult<HashMap<String, Vec<u8>>> {
             self.inner
                 .download_files(keys)
-                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e))
+                .map_err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>)
         }
 
         pub fn upload_files(&self, files: HashMap<String, Vec<u8>>) -> PyResult<()> {
             self.inner
                 .upload_files(files)
-                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e))
+                .map_err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>)
         }
 
         pub fn list_files(&self, prefix: String) -> PyResult<Vec<String>> {
             self.inner
                 .list_files(prefix)
-                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e))
+                .map_err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>)
         }
     }
 
     #[pymodule]
-    fn rustycloudspool(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    fn rustycloudspool(_: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_class::<RustyCloudSpool>()?;
         let _ = get_runtime();
         Ok(())
