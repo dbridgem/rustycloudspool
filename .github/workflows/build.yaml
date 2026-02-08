@@ -30,6 +30,10 @@ jobs:
       
       - name: Build wheels
         uses: PyO3/maturin-action@v1
+        env:
+          CFLAGS_aarch64_unknown_linux_gnu: "-march=armv8-a"
+        env:
+          CFLAGS_aarch64_unknown_linux_gnu: "-march=armv8-a"
         with:
           target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter --features python-api
